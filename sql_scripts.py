@@ -63,3 +63,7 @@ update fs_main.file_metadata
 set is_migrated = true
 where file_uid = %s
 """
+
+ora_merge = """
+
+"""

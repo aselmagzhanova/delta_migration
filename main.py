@@ -5,7 +5,7 @@ import config
 import cx_Oracle
 from datetime import datetime
 import sql_scripts
-
+from multiprocessing import Process
 
 def create_pg_conn(
         pg_host: str,
@@ -56,10 +56,7 @@ def close_ora_conn(ora_client):
     if ora_client is not None:
         ora_client.close()
 
-
-if __name__ == '__main__':
-    startTime = datetime.now()
-
+def migrate():
     #pg
     pg_conn = create_pg_conn(config.pg_host, config.pg_port, config.pg_database, config.pg_user, config.pg_password)
     pg_conn.autocommit = True
@@ -157,3 +154,18 @@ if __name__ == '__main__':
         print(f"Error: {error}")
     pg_cursor.close()
     close_pg_conn(pg_conn)
+
+if __name__ == '__main__':
+    startTime = datetime.now()
+
+    procs = []
+    for thread_id in range(config.num_threads):
+        proc = Process(target=migrate)
+        procs.append(proc)
+        proc.start()
+
+    for proc in procs:
+        proc.join()
+
+    endTime = datetime.now()
+    print ("Время выполнения: ", endTime - startTime)

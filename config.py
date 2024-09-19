@@ -18,3 +18,5 @@ create_date = '2024-08-06 10:30:00'
 minio_user = 'minioadmin'
 minio_password = 'minioadmin'
 minio_host = 'eis-minio-urdfs01.eis3.fk.dks.lanit.ru:9091'
+
+num_threads = 5
