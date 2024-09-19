@@ -66,7 +66,10 @@ def migrate(thred_num):
     pg_cursor.execute(sql_scripts.pg_get_data, (date_threshold_str,config.num_threads, thred_num))
 
     #minio
-    minio_client = create_minio_client(config.minio_host, config.minio_user, config.minio_password)
+    minio_clients = {}
+    for i in config.minio_list:
+        minio_host = i + config.minio_host
+        minio_clients[i] = create_minio_client(minio_host, config.minio_user, config.minio_password)
 
     #ora
     cur_ora_conn = create_ora_conn(config.ora_user, config.ora_password,
@@ -76,21 +79,22 @@ def migrate(thred_num):
     try:
         while True:
             row = pg_cursor.fetchone()
-            #print(row)
             if not row:
                 break
             content_uid = row[8].replace("-", "").upper()
-            create_date = row[9]
-            year_str = create_date.strftime("%Y")
-            yyyymmdd_str = create_date.strftime("%Y%m%d")
-            two_digits = content_uid[:2].upper()
-            context = row[1]
-            bucket_name = str("filestore-" + context + "-" + year_str)
-            object_key = f"{yyyymmdd_str}/{two_digits}/{content_uid}"
-            file_content = minio_client.get_object(bucket_name, object_key).read()
+            bucket_name = str(row[33].lower()).split("/")[0]
+            context = bucket_name.split('-')
+            context = context[1]
+            minio_subdir = row[33].split('/', 1)[1].upper()
+            object_key = f"{minio_subdir}/{content_uid}"
+            minio_name = config.context_minio_mapping[context]
+            try:
+                file_content = minio_clients[minio_name].get_object(bucket_name, object_key).read()
+            except Exception as e:
+                print(f"No file in minio: {e}")
+                continue
             lob = ora_cursor.var(cx_Oracle.BLOB)
             lob.setvalue(0, file_content)
-            #print(file_content)
             file_uid_ins = row[0].replace("-", "").upper()
             context_ins = row[1]
             file_name_ins = row[2]
@@ -151,8 +155,8 @@ def migrate(thred_num):
                 pg_conn.cursor().execute(sql_scripts.pg_upd, (row[0],))
             except Exception as e:
                 print(f"Ошибка при обновлении данных в PostgreSQL: {e}")
-    except (Exception, cx_Oracle.Error, psycopg2.Error) as error:
-        print(f"Error: {error}")
+    #except (Exception, cx_Oracle.Error, psycopg2.Error) as error:
+    #    print(f"Error: {error}")
     finally:
         # Закрываем курсоры и соединения
         ora_cursor.close()
@@ -169,6 +173,7 @@ if __name__ == '__main__':
         thread = threading.Thread(target=migrate, args=(i,))
         threads.append(thread)
         thread.start()
+        print("Запущен поток ", i)
 
     # Ждем завершения потоков
     for thread in threads:
