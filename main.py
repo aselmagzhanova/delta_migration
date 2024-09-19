@@ -5,7 +5,7 @@ import config
 import cx_Oracle
 from datetime import datetime
 import sql_scripts
-from multiprocessing import Process
+import threading
 
 def create_pg_conn(
         pg_host: str,
@@ -56,14 +56,14 @@ def close_ora_conn(ora_client):
     if ora_client is not None:
         ora_client.close()
 
-def migrate():
+def migrate(thred_num):
     #pg
     pg_conn = create_pg_conn(config.pg_host, config.pg_port, config.pg_database, config.pg_user, config.pg_password)
     pg_conn.autocommit = True
     pg_cursor = pg_conn.cursor()
     date_threshold = datetime.strptime(config.create_date, '%Y-%m-%d %H:%M:%S')
     date_threshold_str = date_threshold.strftime('%Y-%m-%d %H:%M:%S')
-    pg_cursor.execute(sql_scripts.pg_get_data, (date_threshold_str,))
+    pg_cursor.execute(sql_scripts.pg_get_data, (date_threshold_str,config.num_threads, thred_num))
 
     #minio
     minio_client = create_minio_client(config.minio_host, config.minio_user, config.minio_password)
@@ -76,7 +76,7 @@ def migrate():
     try:
         while True:
             row = pg_cursor.fetchone()
-            print(row)
+            #print(row)
             if not row:
                 break
             content_uid = row[8].replace("-", "").upper()
@@ -147,25 +147,32 @@ def migrate():
                                forbidden_check_result=forbidden_check_result_ins,
                                forbidden_check_message=forbidden_check_message_ins,
                                container_name=container_name_ins, file_content=lob)
-            pg_conn.cursor().execute(sql_scripts.pg_upd, (row[0],))
-
-
+            try:
+                pg_conn.cursor().execute(sql_scripts.pg_upd, (row[0],))
+            except Exception as e:
+                print(f"Ошибка при обновлении данных в PostgreSQL: {e}")
     except (Exception, cx_Oracle.Error, psycopg2.Error) as error:
         print(f"Error: {error}")
-    pg_cursor.close()
-    close_pg_conn(pg_conn)
+    finally:
+        # Закрываем курсоры и соединения
+        ora_cursor.close()
+        cur_ora_conn.close()
+        pg_cursor.close()
+        pg_conn.close()
 
 if __name__ == '__main__':
     startTime = datetime.now()
 
-    procs = []
-    for thread_id in range(config.num_threads):
-        proc = Process(target=migrate)
-        procs.append(proc)
-        proc.start()
+    # Запускаем потоки
+    threads = []
+    for i in range(config.num_threads):
+        thread = threading.Thread(target=migrate, args=(i,))
+        threads.append(thread)
+        thread.start()
 
-    for proc in procs:
-        proc.join()
+    # Ждем завершения потоков
+    for thread in threads:
+        thread.join()
 
     endTime = datetime.now()
     print ("Время выполнения: ", endTime - startTime)

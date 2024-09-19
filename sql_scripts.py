@@ -38,7 +38,8 @@ from fs_main.content_metadata cm
 join fs_main.file_metadata fm 
 on cm.content_uid = fm.content_uid
 where cm.create_date >= %s
-and not fm.is_migrated;
+and not fm.is_migrated
+and mod(abs(hashname(fm.file_uid::text)), %s) = %s;
 """
 
 ora_insert = """
@@ -64,6 +65,3 @@ set is_migrated = true
 where file_uid = %s
 """
 
-ora_merge = """
-
-"""
